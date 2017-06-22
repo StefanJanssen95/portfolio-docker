@@ -1,0 +1,174 @@
+version: '2'
+
+services:
+
+### Applications Code Container #############################
+
+    applications:
+      image: tianon/true
+      volumes:
+        - ${APPLICATION}:/var/www
+
+### Workspace Utilities Container ###########################
+
+    workspace:
+      build:
+        context: ./workspace
+        args:
+          - INSTALL_XDEBUG=${WORKSPACE_INSTALL_XDEBUG}
+          - INSTALL_NODE=${WORKSPACE_INSTALL_NODE}
+          - INSTALL_YARN=${WORKSPACE_INSTALL_YARN}
+          - INSTALL_V8JS_EXTENSION=${WORKSPACE_INSTALL_V8JS_EXTENSION}
+          - COMPOSER_GLOBAL_INSTALL=${WORKSPACE_COMPOSER_GLOBAL_INSTALL}
+          - INSTALL_WORKSPACE_SSH=${WORKSPACE_INSTALL_WORKSPACE_SSH}
+          - INSTALL_LARAVEL_ENVOY=${WORKSPACE_INSTALL_LARAVEL_ENVOY}
+          - INSTALL_DEPLOYER=${WORKSPACE_INSTALL_DEPLOYER}
+          - INSTALL_LINUXBREW=${WORKSPACE_INSTALL_LINUXBREW}
+          - INSTALL_MC=${WORKSPACE_INSTALL_MC}
+          - PUID=${WORKSPACE_PUID}
+          - PGID=${WORKSPACE_PGID}
+          - NODE_VERSION=${WORKSPACE_NODE_VERSION}
+          - YARN_VERSION=${WORKSPACE_YARN_VERSION}
+          - TZ=${WORKSPACE_TIMEZONE}
+        dockerfile: "Dockerfile-${PHP_VERSION}"
+      volumes_from:
+        - applications
+      extra_hosts:
+        - "dockerhost:${DOCKER_HOST_IP}"
+      ports:
+        - "${WORKSPACE_SSH_PORT}:22"
+      tty: true
+      networks:
+        - frontend
+        - backend
+
+### PHP-FPM Container #######################################
+
+    php-fpm:
+      build:
+        context: ./php-fpm
+        args:
+          - INSTALL_XDEBUG=${PHP_FPM_INSTALL_XDEBUG}
+          - INSTALL_SOAP=${PHP_FPM_INSTALL_SOAP}
+          - INSTALL_MONGO=${PHP_FPM_INSTALL_MONGO}
+          - INSTALL_MSSQL=${PHP_FPM_INSTALL_MSSQL}
+          - INSTALL_ZIP_ARCHIVE=${PHP_FPM_INSTALL_ZIP_ARCHIVE}
+          - INSTALL_BCMATH=${PHP_FPM_INSTALL_BCMATH}
+          - INSTALL_PHPREDIS=${PHP_FPM_INSTALL_PHPREDIS}
+          - INSTALL_MEMCACHED=${PHP_FPM_INSTALL_MEMCACHED}
+          - INSTALL_OPCACHE=${PHP_FPM_INSTALL_OPCACHE}
+          - INSTALL_EXIF=${PHP_FPM_INSTALL_EXIF}
+          - INSTALL_AEROSPIKE_EXTENSION=${PHP_FPM_INSTALL_AEROSPIKE_EXTENSION}
+          - INSTALL_MYSQLI=${PHP_FPM_INSTALL_MYSQLI}
+          - INSTALL_TOKENIZER=${PHP_FPM_INSTALL_TOKENIZER}
+          - INSTALL_INTL=${PHP_FPM_INSTALL_INTL}
+          - INSTALL_GHOSTSCRIPT=${PHP_FPM_INSTALL_GHOSTSCRIPT}
+        dockerfile: "Dockerfile-${PHP_VERSION}"
+      volumes_from:
+        - applications
+      volumes:
+        - ./php-fpm/php${PHP_VERSION}.ini:/usr/local/etc/php/php.ini
+      expose:
+        - "9000"
+      depends_on:
+        - workspace
+      extra_hosts:
+        - "dockerhost:${DOCKER_HOST_IP}"
+      environment:
+        - PHP_IDE_CONFIG=${PHP_IDE_CONFIG}
+      networks:
+        - backend
+
+### PHP Worker Container #####################################
+
+    php-worker:
+      build:
+        context: ./php-worker
+      volumes_from:
+        - applications
+      depends_on:
+        - workspace
+      networks:
+        - backend
+
+### MySQL Container #########################################
+
+    mysql:
+      build:
+        context: ./mysql
+      environment:
+        - MYSQL_DATABASE=${MYSQL_DATABASE}
+        - MYSQL_USER=${MYSQL_USER}
+        - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+        - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      volumes:
+        - ${DATA_SAVE_PATH}/mysql:/var/lib/mysql
+      ports:
+        - "${MYSQL_PORT}:3306"
+      networks:
+        - backend
+
+### Redis Container #########################################
+
+    redis:
+      build: ./redis
+      volumes:
+        - ${DATA_SAVE_PATH}/redis:/data
+      ports:
+        - "6379:6379"
+      networks:
+        - backend
+
+### Caddy Server Container ##################################
+
+    caddy:
+      build: ./caddy
+      ports:
+        - "80:80"
+        - "443:443"
+        - "2015:2015"
+      volumes_from:
+        - applications
+      volumes:
+        - ./caddy/Caddyfile:/etc/Caddyfile
+        - ./logs/caddy:/var/log/caddy
+        - caddy:/root/.caddy
+      depends_on:
+        - php-fpm
+      networks:
+        - frontend
+        - backend
+
+### Certbot Container ##################################
+
+    certbot:
+      build:
+        context: ./certbot
+      volumes:
+        - ./data/certbot/certs/:/var/certs
+        - ./certbot/letsencrypt/:/var/www/letsencrypt
+      environment:
+        - CN="fake.domain.com"
+        - EMAIL="fake.email@gmail.com"
+      networks:
+        - frontend
+
+### Networks Setup ############################################
+
+networks:
+  frontend:
+    driver: "bridge"
+  backend:
+    driver: "bridge"
+
+### Volumes Setup #############################################
+
+volumes:
+  mysql:
+    driver: "local"
+  redis:
+    driver: "local"
+  adminer:
+    driver: "local"
+  caddy:
+    driver: "local"
